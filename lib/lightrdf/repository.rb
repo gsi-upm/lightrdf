@@ -6,8 +6,10 @@ module RDF
     def initialize options={}
       super()
       
+      #debug
+      debug = false
       # Assigns the default value to the options.
-      @options = {:host=>"http://localhost", :port=>8080, :repository=>"memory", :format=>:ntriples}.merge(options)
+      @options = {:host=>"http://localhost", :port=>8080, :repository=>"memory", :format=>:ntriples, :complete=>"openrdf-sesame/repositories"}.merge(options)
     end
     
     # Extracts the data in sesame from the indicated repositories
@@ -50,10 +52,30 @@ module RDF
         # Prepares the dir to connect with the repository
         url  = "#{repository_statements_url(@options[:repository])}"
         url += "?context=%3C#{CGI::escape(context)}%3E" if context
-        data = graph.serialize :ntriples
+        
+        # For some reason, sesame doesn't like rdfxml
+        sesame_data =  graph.serialize :ntriples
+	
+        # Sesame:
+        begin
+          RestClient.post url, sesame_data, :content_type=>content_type
+        rescue
+          puts "Exception posting to sesame" if debug
+        end
+	    
+        # OMR:
+        omr_data = graph.serialize :rdf
+	      omrurl= omr_url
+	      
+        request = RestClient::Request.new(:method => :post, :url => omrurl, :user => @options[:omr_user], :password => @options[:omr_pass], :payload=> omr_data, :verify_ssl => false)
 
-        # Adds the data to Sesame
-        RestClient.post url, data, :content_type=>content_type
+        # Adds the data to OMR
+        begin
+        	response = request.execute
+          puts "Data Added!" if debug
+        rescue
+          puts "Badrequest" if debug
+        end
       end
     end
     
@@ -93,17 +115,22 @@ module RDF
     # Selects the type of data to send to sesame
     def content_type
       case @options[:format].to_sym
-        when :rdfxml   then 'application/rdf+xml'
+        when :rdfxml  then 'application/rdf+xml'
+        when :rdf      then 'application/rdf+xml'
         when :ntriples then 'text/plain'
         when :turtle   then 'application/x-turtle'
-        when :n3       then 'text/rdf+n3'
-        when :trix     then 'application/trix'
+        when :n3      then 'text/rdf+n3'
+        when :trix    then 'application/trix'
         when :trig     then 'application/x-trig'
       end
     end
     
     def repositories_url
-      "#{@options[:host]}:#{@options[:port]}/openrdf-sesame/repositories"
+      "#{@options[:host]}:#{@options[:port]}/#{@options[:complete]}"
+    end
+    
+    def omr_url
+      "#{@options[:omr_host]}:#{@options[:omr_port]}/#{@options[:omr_complete]}/"
     end
     
     def repository_url repository
